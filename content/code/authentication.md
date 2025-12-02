@@ -29,24 +29,20 @@ import (
 func main() {
 	ctx := context.Background()
 
-	authHost := os.Getenv("FIREBASE_AUTH_HOST")
+	authHost := os.Getenv("FIREBASE_AUTH_EMULATOR_HOST")
 	if authHost == "" {
-		log.Fatal("FIREBASE_AUTH_HOST environment variable not set.")
+		log.Fatal("FIREBASE_AUTH_EMULATOR_HOST environment variable not set.")
 	}
-	os.Setenv("FIREBASE_AUTH_EMULATOR_HOST", authHost)
-	log.Printf("Using Firebase Auth Emulator Host: %s\n", os.Getenv("FIREBASE_AUTH_EMULATOR_HOST"))
+	log.Printf("Using Firebase Auth Emulator Host: %s\n", authHost)
 
-	firestoreHost := os.Getenv("FIREBASE_FIRESTORE_HOST")
+	firestoreHost := os.Getenv("FIRESTORE_EMULATOR_HOST")
 	if firestoreHost == "" {
-		firestoreHost = "firebase:8080"
-		log.Printf("Warning: FIREBASE_FIRESTORE_HOST not set, defaulting to %s\n", firestoreHost)
+		log.Fatal("FIRESTORE_EMULATOR_HOST environment variable not set.")
 	}
-	os.Setenv("FIRESTORE_EMULATOR_HOST", firestoreHost)
-	log.Printf("Using Firestore Emulator Host: %s\n", os.Getenv("FIRESTORE_EMULATOR_HOST"))
+	log.Printf("Using Firestore Emulator Host: %s\n", firestoreHost)
 
 	conf := &firebase.Config{ProjectID: "my-test-project"}
 
-	// FIX: Use WithoutAuthentication (ADC bypass) + WithGRPCConnectionPool(1) (gRPC stabilization)
 	app, err := firebase.NewApp(ctx, conf,
 		option.WithoutAuthentication(),
 		option.WithGRPCConnectionPool(1),
@@ -128,8 +124,8 @@ service cloud.firestore {
       - firebase
     environment:
       # Pass the internal network address of the emulator (service name) to the API
-      FIREBASE_AUTH_HOST: firebase:9099
-      FIREBASE_FIRESTORE_HOST: firebase:8080
+      - FIRESTORE_EMULATOR_HOST=firebase:8080
+      - FIREBASE_AUTH_EMULATOR_HOST=firebase:9099
     security_opt:
       - label=disable # Required for Fedora/RedHat/SELinux!
 ```
