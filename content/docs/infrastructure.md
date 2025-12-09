@@ -13,27 +13,30 @@ weight: 15
 
 ## General
 
-### Services
+### Services in Production
 
-- **Firebase Hosting**: Frontend.
+- **Firebase Hosting**: Static site frontend.
 - **Cloud Run**: Go API backend.
-- **Firebase Authentication**: User login/register.
-- **Firestore**: User account database.
+- **Firebase Authentication**: User's login/logout management, credentials storage.
+- **Firestore**: User's profile database.
 - **Stripe**: Payment and billing platform.
 
 ### Development Infraestructure
 
-- Development is in local machine and two local containers.
-- **Hugo** static web generator is installed in computer.
-- **Firebase Emulator** is running in one container.
-- **Go API server** is running in another container.
+- Development is in local machine and three local containers.
+- **Hugo** static website generator is installed in local computer.
+- **Caddy** reverse proxy is running in one container (simulates Firebase Hosting)
+    - Port: 5000
+- **Firebase Emulator** is running in another container (simulates Auth and Firestore).
+    - Ports: 4000, 8080 and 9099
+- **Go API server** is running in another container (simulates Cloud Run).
+    - Port: 8081
 
 ### Production Infraestructure
 
-- Development in in local machine and two local containers.
-- Changes are pushed when needed to GitHub, which triggers GitHub actions.
+- Changes in development are pushed to GitHub, which triggers GitHub actions.
 - Github action runs Hugo static site generator and deploys public directory to **Firebase**.
-- Github actions runs Cloud Build, pushes image to Artifact Registry and deploys to **Cloud Run**
+- Github actions runs Cloud Build, pushes image to Artifact Registry and deploys to **Cloud Run**.
 
 ## Development Infraestructure
 
@@ -45,118 +48,262 @@ weight: 15
 version: "3.9"
 
 services:
+  # ----------------------------------------------------------------
+  # 1. Firebase Emulator Service
+  # ----------------------------------------------------------------
   firebase:
     build:
-      context: .
-      dockerfile: firebase/Containerfile
+      context: ./firebase
+      dockerfile: Containerfile
+    container_name: firebase
     image: localhost/firebase-emulator:latest
-    container_name: firebase-emulator
-
-    working_dir: /workspace/firebase
-
-    # Required for Fedora/RedHat/SELinux!
-    security_opt:
-      - label=disable
-
-    volumes:
-      - ./firebase:/workspace/firebase:Z
-      - ./public:/workspace/public:Z
-      - ./.firebase_data:/workspace/.firebase_data:Z
-
     ports:
-      - "4000:4000"   # Emulator UI
-      - "5000:5000"   # Hosting
-      - "8080:8080"   # Firestore
-      - "9099:9099"   # Auth
+      - "4000:4000"  # Emulator UI
+      - "8080:8080"  # Firestore
+      - "9099:9099"  # Auth
+    volumes:
+      - ./.firebase_data:/root/.cache/firebase/emulators
+      - ${PWD}/firebase/firebase.json:/app/firebase.json:ro
+      - ${PWD}/firebase/firestore.rules:/app/firestore.rules:ro
+      - ${PWD}/firebase/firestore.indexes.json:/app/firestore.indexes.json:ro
+      - ${PWD}/frontend/public:/app/public:ro
+    command: >
+      emulators:start
+      --project=my-test-project
+      --only=auth,firestore
+      --import=./firebase_data
+      --export-on-exit
+    networks:
+      - custom_app_network
 
-    command:
-      [
-        "emulators:start",
-        "--project=my-test-project",
-        "--only=auth,firestore,hosting,ui",
-      ]
-      
-  # -----------------------------------------------------
-  # NEW SERVICE: Go API Backend
-  # -----------------------------------------------------
-  go-backend:
-    image: localhost/test_go-backend:latest
+  # ----------------------------------------------------------------
+  # 2. Go Backend Service
+  # ----------------------------------------------------------------
+  backend:
     build:
       context: ./backend
       dockerfile: Containerfile
-    container_name: go-api-backend
+    container_name: go-backend
+    image: localhost/go-api:latest
     ports:
-      - "8081:8081" # Expose the API port
-    # Ensure it starts after the firebase emulator is up (optional but good practice)
+      - "8081:8081"
+    environment:
+      - PORT=8081
+      - STATIC_ROOT=/public
+      - CONTENT_ROOT=/app/posts
+      - FIRESTORE_EMULATOR_HOST=firebase:8080
+      - FIREBASE_AUTH_EMULATOR_HOST=firebase:9099
+      - PROJECT_ID=my-test-project
+      - GCLOUD_PROJECT=my-test-project
+      - GOOGLE_CLOUD_PROJECT=my-test-project
+    volumes:
+      - ${PWD}/frontend/public:/public:ro
+      - ${PWD}/frontend/content/posts:/app/posts:ro
     depends_on:
       - firebase
-    environment:
-      # Pass the internal network address of the emulator (service name) to the API
-      FIREBASE_AUTH_HOST: firebase:9099
-      FIREBASE_FIRESTORE_HOST: firebase:8080
-    security_opt:
-      - label=disable # Required for Fedora/RedHat/SELinux!
+    networks:
+      - custom_app_network
+    network_aliases:
+      - go-api-service
+    command: ["/app/go-server", "--http=0.0.0.0:8081"]
+
+  # ----------------------------------------------------------------
+  # 3. Caddy Reverse Proxy Service
+  # ----------------------------------------------------------------
+  caddy:
+    build:
+      context: ./reverse-proxy
+      dockerfile: Containerfile
+    container_name: caddy-server
+    image: localhost/caddy-proxy:latest
+    ports:
+      - "5000:5000"
+    volumes:
+      - ${PWD}/reverse-proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ${PWD}/frontend/public:/srv:ro
+    depends_on:
+      - backend
+      - firebase
+    networks:
+      - custom_app_network
+
+# ------------------------------------------------------------------
+# 4. Network Definition
+# ------------------------------------------------------------------
+networks:
+  custom_app_network:
+    driver: bridge
 ```
 
 ##### `firebase/Containerfile`
 
 ```yaml
-FROM node:20-slim
+# Use an official, clean base image with Node.js and Alpine
+FROM node:20-alpine
 
-# Install only what firebase-tools actually needs to run the emulators
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    openjdk-17-jre-headless \
-    ca-certificates \
-    && rm -rf /var/lib/apt/lists/* \
-    && apt-get clean
+# Install Java Runtime Environment (JRE) required for Firebase Emulators
+RUN apk add --no-cache openjdk17-jre
 
-# Install exact firebase-tools version globally
-RUN npm install -g firebase-tools@13.25.0
+# Install the Firebase CLI globally
+RUN npm install -g firebase-tools@14.26.0
 
-# Copy only the files the emulator actually needs
-COPY firebase/ ./firebase/
-COPY public/ ./public/
+# Set the working directory
+WORKDIR /app
 
-EXPOSE 4000 5000 8080 9099
+# Expose ports (matching your compose file)
+EXPOSE 4000 8080 9099
 
-ENTRYPOINT ["firebase"]
-CMD ["emulators:start", "--project=my-test-project", "--only=auth,firestore,hosting,ui"]
+# Copy necessary files from the host into the container. 
+# These will be overwritten by volumes in compose.dev.yaml, 
+# but are included here for robustness.
+COPY firebase.json firestore.rules firestore.indexes.json ./
+
+# Define the entry point to run the emulators
+ENTRYPOINT ["/usr/local/bin/firebase"]
+CMD ["emulators:start", "--project=my-test-project", "--only=auth,firestore"]
 ```
 
 ##### `backend/Containerfile`
 
 ```yaml
-# Stage 1: Build the Go application
+# Use the official Go image for a lean base
 FROM golang:1.25-alpine AS builder
 
+# Set necessary environment variables
+ENV GO111MODULE=on \
+    CGO_ENABLED=0 \
+    GOOS=linux \
+    GOARCH=amd64
+
+# Set the working directory for building
 WORKDIR /app
 
-COPY . .
+# Copy go.mod and go.sum to cache dependencies
+# These files are expected to be in the 'backend/' directory alongside this Containerfile
+COPY go.mod go.sum .
 
-RUN go mod tidy
+# Download dependencies
+RUN go mod download
 
-# Build the application
-RUN CGO_ENABLED=0 GOOS=linux go build -o /go-api ./main.go
+# Copy the rest of the source code
+COPY main.go .
 
-# Stage 2: Create the final lean image
+# Build the application with -ldflags="-s -w" to strip debug info and symbols, reducing binary size
+RUN go build -ldflags="-s -w" -o /go-server .
+
+# --- Final image (minimal base for production/Cloud Run) ---
 FROM alpine:latest
 
-# Install dependencies needed by the Go application
 RUN apk add --no-cache ca-certificates
 
-# Set the working directory
-WORKDIR /root/
+# Set the working directory (matching the deployment environment)
+WORKDIR /app
 
-# Copy the built binary from the builder stage
-COPY --from=builder /go-api .
-
-# Expose the port the application runs on
+# Cloud Run/Go apps listen on the $PORT environment variable, which defaults to 8081 in the container
 EXPOSE 8081
 
-# Command to run the executable
-CMD ["./go-api"]
+# Copy the compiled binary from the builder stage
+COPY --from=builder /go-server .
+
+# Create necessary directories that will be used for volume mounts in dev or bundled in prod
+RUN mkdir -p /public /app/posts
+
+# Define the default command to run your app
+CMD ["/app/go-server"]
 ```
 
+##### `reverse-proxy/Containerfile`
+
+```yaml
+# Build stage
+FROM golang:1.25-alpine AS builder
+
+# Install build tools
+RUN apk add --no-cache git make gcc musl-dev
+
+# Install xcaddy
+RUN go install github.com/caddyserver/xcaddy/cmd/xcaddy@latest
+
+# Build Caddy with standard modules
+RUN xcaddy build v2.10.2 \
+    --with github.com/caddyserver/caddy/v2/modules/standard \
+    --output /usr/bin/caddy
+
+# Final stage
+FROM alpine:latest
+
+# Minimal tools + debugging utilities
+RUN apk add --no-cache \
+    ca-certificates \
+    bash \
+    curl \
+    iproute2 \
+    net-tools \
+    procps \
+    tcpdump \
+    vim \
+    bind-tools \
+    less \
+    jq \
+    busybox-extras
+
+# Copy Caddy binary
+COPY --from=builder /usr/bin/caddy /usr/bin/caddy
+
+# Default config and working dir
+WORKDIR /etc/caddy
+VOLUME ["/etc/caddy", "/srv"]
+
+# Expose the port
+EXPOSE 5000
+
+# Run Caddy
+CMD ["/usr/bin/caddy", "run", "--config", "/etc/caddy/Caddyfile"]
+```
+### Caddyfile
+
+##### `reverse-proxy/Caddyfile`
+
+```caddy
+{
+    debug
+    admin off
+}
+
+:5000 {
+
+    # Global logging for all requests
+    log {
+        output stdout
+        format console
+        level DEBUG
+    }
+
+    # 1. Define a named matcher for all paths that should go to the Go backend
+    @backend {
+        path /api/*
+        path /posts/*
+    }
+
+    # 2. Use the named matcher in a handle block
+    handle @backend {
+        reverse_proxy backend:8081 {
+            transport http {
+                read_buffer 64kb
+                write_buffer 64kb
+                dial_timeout 10s
+            }
+        }
+    }
+
+    # Frontend requests (This remains the default fallback handler)
+    handle {
+        root * /srv
+        try_files {path} {path}/ /index.html
+        file_server
+    }
+}
+```
 ## Dev vs Prod
 
 There are three cycles:

@@ -58,6 +58,8 @@ sequenceDiagram
 
 ## Login workflow
 
+Standard hybrid authentication flow where the client uses the Firebase SDK for the primary sign-in and then contacts a custom backend API to establish a persistent session cookie.
+
 ```mermaid
 flowchart LR
     subgraph FIREBASE
