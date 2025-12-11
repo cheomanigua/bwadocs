@@ -1,6 +1,6 @@
 ---
 title: "Authentication"
-weight: 20
+weight: 40
 # bookFlatSection: false
 # bookToc: true
 # bookHidden: false
@@ -11,48 +11,136 @@ weight: 20
 # bookIcon: ''
 ---
 
-Authentication is the process of signing up, logging in and logging out management, and credentials storage.
+Authentication is the process of securely and effectively managing signups, logins, logouts and credentials storage.
 
-### 1. Firebase Authentication
-- Purpose: Manage users and credentials.
-- Generates ID token
-- Stores authentication data only:
-    - Email / phone number
-    - Password hash (not plain text)
-    - UID (unique user ID)
-    - Provider info (Google, Facebook, etc.)
-- Used only for login/signup.
-- In your emulator, stored under:
+The current architecture implements a **Session Cookie-based authentication flow** that uses both the Firebase Client SDK (in the browser) and the Firebase Admin SDK (in your Go backend) for registration, login and logout. Firestore Admin Client (in your Go backend) is used for credential storage.
+
+* * *
+
+## Authentication Process Summary
+
+The system uses the short-lived Firebase ID Token as a **one-time exchange credential** to establish a **long-lived, secure, HTTP-only session cookie** controlled by the Go API.
+
+### 1\. Register Process
+
+**(Client-Side Auth + Backend Profile Creation)**
+
+The registration is a two-step process: account creation via the client, followed by profile storage and session creation via the backend.
+
+-   **1\. Client Authentication:** The user submits the registration form. The client-side Firebase JS SDK calls `createUserWithEmailAndPassword` to create the user account in the Firebase Auth Emulator. A short-lived **ID Token** is returned.
+-   **2\. Backend Profile & Plan Storage:** The client makes the first call to your Go API endpoint, `/api/register`, sending the ID Token, name, and desired plan.
+    -   The Go API uses the Admin SDK’s `VerifyIDToken` to authenticate the request.
+    -   It then uses the Firestore Client to save the user’s custom profile data (plan, name, email) into the `users` collection.
+-   **3\. Session Establishment:** The client immediately makes the second call to `/api/sessionLogin` with the same ID Token.
+    -   The Go API validates the token and generates a long-lived, secure `__session` **cookie** using `authClient.SessionCookie()`, setting it on the user’s browser.
+-   **Final State:** The user is created, their profile is saved, and a secure session is established.
+
+* * *
+
+### 2\. Login Process
+
+**(Client-Side Auth + Backend Session Cookie Exchange)**
+
+Login is a dedicated process to establish the long-lived session after successful credential verification.
+
+-   **1\. Client Authentication:** The user submits the login form. The client-side Firebase JS SDK calls `signInWithEmailAndPassword`, verifying credentials with the Auth Emulator. A short-lived **ID Token** is returned.
+-   **2\. Backend Session Exchange:** The client sends the ID Token to your Go API endpoint, `/api/sessionLogin`.
+    -   The Go API verifies the token’s validity.
+    -   The Go API generates a **long-lived session cookie** (`__session`) using `authClient.SessionCookie()` and sends it back in the HTTP response header.
+-   **Final State:** The user is logged in, and the secure, HTTP-only `__session` cookie is present on the client’s browser for all subsequent authenticated requests.
+
+* * *
+
+### 3\. Logout Process
+
+**(Hybrid Session Clearing)**
+
+Logout requires a coordinated effort between the client and the server to ensure both the client’s local state and the server’s session cookie are cleared.
+
+-   **1\. Backend Session Clearing:** The user clicks the Logout button. The client-side JavaScript first calls the Go API endpoint `/api/sessionLogout`.
+    -   The Go handler `handleSessionLogout` receives the request and **clears the secure `__session` cookie** by setting its `MaxAge` to `-1`. This is necessary because JavaScript cannot delete an `HttpOnly` cookie.
+-   **2\. Client-Side Clearing:** After the backend call completes, the client-side JavaScript calls `signOut(auth)` from the Firebase SDK. This clears any local Firebase authentication state.
+-   **Final State:** The session cookie is deleted from the browser, the client’s local auth state is cleared, and the user is redirected to the home page (`/`).
+
+* * *
+
+## Motivations
+
+The application uses **Firebase Session Cookies** for long-term, secure access to the Go backend and content.
+
+The Go API is necessary because it performs two critical security operations that client-side JavaScript **cannot** perform: **session cookie creation** and **session cookie deletion**.
+
+### 1\. Secure Login (`/api/sessionLogin`)
+
+The client-side Firebase SDK only gives you a **short-lived JWT ID Token**. Your Go backend must be involved to secure the session.
+
+-   **Cookie Security:** The Go API is responsible for exchanging the ID Token for a **long-lived, HTTP-only session cookie**. This `HttpOnly` flag prevents client-side JavaScript from accessing the cookie, which significantly mitigates Cross-Site Scripting (XSS) attacks where malicious scripts could steal the session token.
+-   **Server-Side State:** The cookie is set on the server via the HTTP response, and all subsequent requests to protected routes rely on the Go API verifying this cookie using the Admin SDK.
+
+### 2\. Secure Logout (`/api/sessionLogout`)
+
+To fully terminate the secure, long-lived session, the server must be involved.
+
+-   **HTTP-Only Constraint:** Since the session cookie is `HttpOnly`, client-side JavaScript **cannot delete it**.
+-   **Server Action:** The only way to securely clear this cookie is for the client to request the Go API endpoint `/api/sessionLogout`. The Go handler `handleSessionLogout` then clears the cookie by setting its `MaxAge` to a negative value in the response, effectively instructing the browser to delete it.
+
+### The Alternative (Without Go API)
+
+If Go API is not used for session management, you would rely purely on the short-lived Firebase ID Tokens handled by the client (which auto-refreshes). This is possible, but it means:
+
+1.  Your Go backend would need to **verify the ID Token on every single request** (which is computationally expensive).
+2.  You would need to pass this token in the `Authorization` header on every request, which is often less seamless than relying on a standard session cookie.
+
+By implementing the session cookie flow, you are prioritizing **server-side control** and **cookie security**, which necessitates the Go API handlers.
+
+* * *
+
+## Responsabilities
+
+### 1\. Firebase Authentication
+
+-   Purpose: Manage users and credentials.
+-   Generates ID token
+-   Stores authentication data only:
+    -   Email / phone number
+    -   Password hash (not plain text)
+    -   UID (unique user ID)
+    -   Provider info (Google, Facebook, etc.)
+-   Used only for login/signup.
+-   In your emulator, stored under:
+
 ```
 .firebase_data/auth_export/accounts.json
 ```
 
 Firebase Authentication does NOT store your app’s additional user info, like profile data, preferences, or posts.
 
-### 2. Cloud Run (Go API)
-- Purpose: Creates user session
-- Receives ID token from Firebase Authenticaton
-- Creates Session cookie
-- Enables backend-authenticated pages (content guard)
-- Controls Hugo menu state
-- Makes user a "member"
+### 2\. Cloud Run (Go API)
 
-### 3. Firestore (Database)
-- Purpose: Store application data, including user-related data.
-- Examples of what you might store in Firestore:
-    - User profile (display name, avatar, bio)
-    - User posts or messages
-    - App settings, preferences
-    - Any other app data
-- Firestore does NOT store passwords; it just stores the UID from Firebase Auth (or email) to associate the data with the user.
+-   Purpose: Creates user session
+-   Receives ID token from Firebase Authenticaton
+-   Creates Session cookie
+-   Enables backend-authenticated pages (content guard)
+-   Controls Hugo menu state
+-   Makes user a “member”
 
-### 4. How they work together
+### 3\. Firestore (Database)
+
+-   Purpose: Store application data, including user-related data.
+-   Examples of what you might store in Firestore:
+    -   User profile (display name, avatar, bio)
+    -   User posts or messages
+    -   App settings, preferences
+    -   Any other app data
+-   Firestore does NOT store passwords; it just stores the UID from Firebase Auth (or email) to associate the data with the user.
+
+### How they work together
 
 Typical flow:
 
-1. User registers with Firebase Auth (email + password).
-2. Auth gives a unique UID for that user.
-3. Your app (Go API backend) writes additional user info to Firestore:
+1.  User registers with Firebase Auth (email + password).
+2.  Auth gives a unique UID for that user.
+3.  Your app (Go API backend) writes additional user info to Firestore:
 
 ```
 users (collection)
@@ -63,17 +151,24 @@ users (collection)
       └── createdAt: "2025-11-21T12:34:56Z"
 ```
 
-5. Later, when the user logs in:
-    - Firebase Auth verifies their credentials
-    - Firebase Auth sends ID token to Cloud Run
-    - Cloud Run receives ID token and creates session cookie
-    - App fetches their profile from Firestore using UID
+5.  Later, when the user logs in:
+    -   Firebase Auth verifies their credentials
+    -   Firebase Auth sends ID token to Cloud Run
+    -   Cloud Run receives ID token and creates session cookie
+    -   App fetches their profile from Firestore using UID
 
 This separation improves security because passwords never go into the app database.
 
----
+* * *
 
-#### Signup workflow
+## Processes, Workflows, Sequences
+
+### 1\. Signup
+
+Files involved:
+
+-   `backend/main.go`
+-   `frontend/layouts/account/register.html`
 
 ```mermaid
 flowchart LR
@@ -101,15 +196,16 @@ flowchart LR
     js <--"11 / 10"--> apises
 ```
 
-- **1**: The user submits the form. The Firebase JS SDK (running in the browser) intercepts the event after the password check passes.
-- **2**: The client calls the Firebase function `createUserWithEmailAndPassword`, sending the email/password to the Auth Emulator to create the user account.
-- **3**: Firebase Auth successfully creates the user and returns the short-lived ID Token to the client.
-- **4**: The client makes the first POST call to `/api/register`, sending the ID Token along with user data (name, plan) to the backend for application-specific registration.
-- **5**: The Go API uses the Admin SDK Auth Client to call `VerifyIDToken`, confirming the token's validity and obtaining the user's `UID`.
-- **6/7**: The Go API uses the Firestore Admin Client to execute a `Set()` operation, saving the user's Name, Email, and Plan into the `users` collection in Firestore.
-- **8/9**: The backend sends a success response, and the client proceeds to the session login request.
-- **10**: The client makes the second POST call to `/api/sessionLogin`, sending the ID Token to request a persistent session.
-- **11**: The backend generates a Session Cookie and sets it on the client's browser via the HTTP response header.
+
+-   **1**: The user submits the form. The Firebase JS SDK (running in the browser) intercepts the event after the password check passes (6 character minimum).
+-   **2**: The client calls the Firebase function `createUserWithEmailAndPassword`, sending the email/password to the Auth Emulator to create the user account.
+-   **3**: Firebase Auth successfully creates the user and returns the short-lived ID Token to the client.
+-   **4**: The client makes the first POST call to `/api/register`, sending the ID Token along with user data (name, plan) to the backend for application-specific registration.
+-   **5**: The Go API uses the Admin SDK Auth Client to call `VerifyIDToken`, confirming the token’s validity and obtaining the user’s `UID`.
+-   **6/7**: The Go API uses the Firestore Admin Client to execute a `Set()` operation, saving the user’s Name, Email, and Plan into the `users` collection in Firestore.
+-   **8/9**: The backend sends a success response, and the client proceeds to the session login request.
+-   **10**: The client makes the second POST call to `/api/sessionLogin`, sending the ID Token to request a persistent session.
+-   **11**: The backend generates a Session Cookie and sets it on the client’s browser via the HTTP response header.
 
 ```mermaid
 sequenceDiagram
@@ -129,11 +225,17 @@ sequenceDiagram
     js->>go: POST /api/sessionLogin
     go-->>js: Session Cookie
 ```
----
 
-#### Login workflow
+* * *
+
+### 2\. Login
 
 Standard hybrid login authentication flow where the client uses the Firebase SDK for the primary sign-in and then contacts a custom backend API to establish a persistent session cookie.
+
+Files involved:
+
+-   `backend/main.go`
+-   `frontend/layouts/account/login.html`
 
 ```mermaid
 flowchart LR
@@ -154,12 +256,12 @@ flowchart LR
     apises <-- "5" --> admin
 ```
 
-- **1**: The user submits the login form containing the email and password. The client-side Firebase JS SDK intercepts the submit event.
-- **2**: The client-side Firebase JS SDK calls `signInWithEmailAndPassword`, sending the credentials to the Auth Emulator for verification.
-- **3**: If successful, the Auth Emulator returns the User Credential object, which includes a newly generated, short-lived ID Token.
-- **4**: The client makes a POST request to the custom backend endpoint, `/api/sessionLogin`, sending the ID Token to initiate a secure session.
-- **5**: The Go API uses the Admin SDK Auth Client to call `VerifyIDToken` to confirm the token's validity and get the user's `UID`.
-- **6**: The backend verifies the ID Token and generates a long-lived Session Cookie using `authClient.SessionCookie()`, and sets it on the client's browser via the HTTP response header.
+-   **1.** The user submits the login form containing the email and password. The client-side Firebase JS SDK intercepts the submit event.
+-   **2.** The client-side Firebase JS SDK calls `signInWithEmailAndPassword`, sending the credentials to the Auth Emulator for verification.
+-   **3.** If successful, the Auth Emulator returns the User Credential object, which includes a newly generated, short-lived ID Token.
+-   **4.** The client makes a POST request to the custom backend endpoint, `/api/sessionLogin`, sending the ID Token to initiate a secure session.
+-   **5.** The Go API uses the Admin SDK Auth Client to call `VerifyIDToken` to confirm the token’s validity and get the user’s `UID`.
+-   **6.** The backend verifies the ID Token and generates a long-lived Session Cookie using `authClient.SessionCookie()`, and sets it on the client’s browser via the HTTP response header.
 
 ```mermaid
 sequenceDiagram
@@ -174,64 +276,65 @@ sequenceDiagram
     js->>go: POST /api/sessionLogin + ID Token
     go-->>js: Session Cookie
 ```
----
 
-### 4. In your emulator setup
+* * *
 
-    - `.firebase_data` → Authentication data (passwords, emails, UIDs)
-    - Firestore emulator → Application data (user profiles, app content, settings)
+### 3\. Logout
+
+Files involved:
+
+-   `backend/main.go`
+-   `frontend/layouts/baseof.html`
+
+```mermaid
+flowchart LR
+    subgraph Browser
+        logoutbtn(Logout Button)
+        js(Firebase JS SDK)
+    end
+    subgraph Firebase
+        auth(Auth)
+    end
+    subgraph Go API
+        apisesout(/api/sessionLogout)
+    end
+
+    logoutbtn -- 1 --> js
+    js -- "2: fetch /api/sessionLogout (POST)" --> apisesout
+    apisesout -- "3: Clear \_\_session Cookie (HTTP Response)" --> js
+    js -- "4: signOut(auth)" --> auth
+```
+
+-   **1.** The user clicks the Logout button, which has the ID logout-button (defined in hugo.toml). The event listener in baseof.html intercepts this click.
+-   **2.** The client side Firebase JS SDK calls the custom Go API endpoint `/api/sessionLogout` using a POST request. This request is designed to include the session cookie (credentials: “include”).
+-   **3.** The Go handler function, `handleSessionLogout` receives the request and immediately clears the secure, long-lived `__session` cookie by setting its `MaxAge` to -1 in the HTTP response header. This effectively logs the user out from the server-side session.
+-   **4.** After the backend call completes, the client-side JavaScript calls `signOut(auth)` from the Firebase JS SDK. This clears the short-lived, client-side Firebase authentication state (local tokens, etc.).
+
+### In your emulator setup
+
+> [!TIP]
+> `.firebase_data/` → Authentication data (passwords, emails, UIDs)
+>
+> Firestore emulator → Application data (user profiles, app content, settings)
+
 
 So if you “see user data” in Firestore, that’s the app-specific data, not the passwords.
 
-
-### How it works step by step
-
-1. User registration:
-    - Frontend sends email/password to your Go API.
-    - Go API calls Firebase Auth Emulator to create the user.
-    - Firebase Auth Emulator stores the user in .firebase_data/auth_export/accounts.json as hashed password + UID.
-2. User profile/data:
-    - Backend creates a document in the Firestore emulator under users/<UID> with any extra info (display name, bio, preferences).
-    - Firestore does NOT store passwords, only the UID to link the data to the user.
-3. User login:
-    - Frontend sends credentials to Go backend.
-    - Backend verifies via Auth Emulator.
-    - Backend fetches the user profile from Firestore using the UID.
-
 ### Key takeaways
 
-- Auth Emulator → passwords, UID, login credentials
-- Firestore Emulator → app-specific data linked to users
-- Separation ensures security: passwords are never in Firestore.
-- Your Go backend acts as the bridge between frontend, Auth, and Firestore.
+-   Auth Emulator → passwords, UID, login credentials
+-   Firestore Emulator → app-specific data linked to users (profile, account, dashboard)
+-   Separation ensures security: passwords are never in Firestore.
+-   Your Go backend acts as the bridge between frontend, Auth, and Firestore.
 
-### Go API (`main.go`)
+## Code
 
-> [!NOTE]
-> All the instructions below are aimed for development, not production. The goal is to avoid using real credentials in the local development environment. However, local development comes with a big limitation: **no support for rewrites**. For this reason we are using **Caddy** reverse proxy instead of Firebase Hosting in the local development environment.
-
-
-  * ✅ **Admin SDK Initialization**: Uses `os.Setenv("FIREBASE_AUTH_EMULATOR_HOST", authHost)` to correctly point the Admin SDK to the emulator.
-  * ✅ **Register**: `registerHandler` now calls `authClient.CreateUser` (Admin SDK) to create the user in the Firebase Auth Emulator.
-  * ✅ **Token Verification**: Added `authMiddleware` using `authClient.VerifyIDToken` to secure a new `protectedHandler`.
-  * ❌ **Login**: Not necessary to implement in Go API, as the client is responsible for this function.
-  * ❌ **Logout**: Not necessary to implement in Go API, as the client is responsible for this function.
-
-During development cycle, when the Admin SDK sees the `FIREBASE_AUTH_EMULATOR_HOST` environment variable, it is designed to automatically bypass the need for a service account and switch to the local, insecure connection. We set and environmental variable in the development version of podman compose file.
-
-Furthermore, the most stable, community-verified solution that bypasses both the credential check (needed for Auth) and the conflicting transport check (needed for Firestore) is to use a specific combination of options:
-
-- `option.WithoutAuthentication()`: This is the official way to tell the SDK not to look for production credentials, allowing it to rely on the emulator host environment variables.
-- `option.WithGRPCConnectionPool(1)`: This option is often required to stabilize the gRPC client’s initialization, which is what Firestore uses, thereby preventing the *WithHTTPClient is incompatible with WithGRPCConn* error that results from the SDK trying to enforce strict client types.
-
-
-
-### - `main.go`
+### \- `main.go`
 
 The Firebase Authenticator implementation in code lives on `backend/main.go`
 
 > [!WARNING]
-> It's **PARAMOUNT** to import the latest version of `firebase.google.com/go` and `firebase.google/com/go/firebase`.
+> It’s **PARAMOUNT** to import the latest version of `firebase.google.com/go` and `firebase.google/com/go/firebase`.
 
 This is the code needed to run:
 
@@ -249,7 +352,6 @@ import (
 	"cloud.google.com/go/firestore"
 	firebase "firebase.google.com/go/v4"
 	"firebase.google.com/go/v4/auth"
-	"google.golang.org/api/option"
 )
 
 var (
@@ -495,10 +597,9 @@ func getAuthenticatedUserFromCookie(r *http.Request) *AuthUser {
 func main() {
 	// Initialize Firebase Admin SDK
 	ctx := context.Background()
-	sa := option.WithCredentialsFile("firebase-admin-sdk.json") // Ensure this file exists
 	app, err := firebase.NewApp(ctx, &firebase.Config{
 		ProjectID: "my-test-project",
-	}, sa)
+	})
 	if err != nil {
 		log.Fatalf("error initializing firebase app: %v", err)
 	}
@@ -530,9 +631,10 @@ func main() {
 }
 ```
 
-### - `go.mod`
+### \- `go.mod`
 
-You must have the following go.mod file. Note that `firebase.google.com` version must be 4 or bigger, otherwise 
+```
+You must have the following go.mod file. Note that `firebase.google.com` version must be 4 or bigger, otherwise
 
 ```
 module go-api-backend
@@ -540,28 +642,23 @@ module go-api-backend
 go 1.25.4
 
 require (
-	cloud.google.com/go/firestore v1.20.0
-	firebase.google.com/go/v4 v4.18.0
-	google.golang.org/api v0.256.0
+    cloud.google.com/go/firestore v1.20.0
+    firebase.google.com/go/v4 v4.18.0
 )
+
+```
 ```
 
-### - `firebase/firestore.rules`
+### - `firestore.rules`
 
 Also, during development, we must allow read/write on the emulator:
-
-```
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /{document=**} {
-      allow read, write: if true;
-    }
-  }
-}
 ```
 
-### - `firebase/firebase.json`
+rules\_version = ‘2’; service cloud.firestore { match /databases/{database}/documents { match /{document=\*\*} { allow read, write: if true; } } }
+
+```
+
+### - `firebase.json`
 
 ```yaml
 {
@@ -597,7 +694,7 @@ service cloud.firestore {
 }
 ```
 
-### - `compose.dev.yaml`
+### \- `compose.dev.yaml`
 
 ```
 /...
@@ -634,20 +731,14 @@ service cloud.firestore {
     command: ["/app/go-server", "--http=0.0.0.0:8081"]
 ```
 
-### - `login.html` and `register.html`
-
-1. Add the Firebase JS SDK to your Hugo templates
-2. Replace the `<form>` submissions with `signInWithEmailAndPassword()` / `createUserWithEmailAndPassword()`
-
-
-##### Register page (layouts/account/register.html)
+### \- `register.html`
 
 Here’s a **complete, production-ready registration (sign-up) page** that works perfectly with:
 
-- Firebase Authentication (email + password)  
-- Your future Go backend on Cloud Run (`/api/**`)  
-- Hugo templates  
-- Local development on **localhost:5000** (Firebase emulator)  
+-   Firebase Authentication (email + password)
+-   Your future Go backend on Cloud Run (`/api/**`)
+-   Hugo templates
+-   Local development on **localhost:5000** (Firebase emulator)
 
 `frontend/layouts/account/register.html`
 
@@ -735,7 +826,7 @@ Here’s a **complete, production-ready registration (sign-up) page** that works
     getAuth,
     connectAuthEmulator,
     // CRITICAL: Use the function for creating a new user
-    createUserWithEmailAndPassword, 
+    createUserWithEmailAndPassword,
   } from "https://www.gstatic.com/firebasejs/9.6.1/firebase-auth.js";
 
   // NOTE: Config must match your Firebase project setup (usually found in auth_init.html)
@@ -795,12 +886,12 @@ Here’s a **complete, production-ready registration (sign-up) page** that works
             email,
           }),
         });
-        
+
         // Handle backend registration failure
         if (!registerRes.ok) {
             throw new Error(`Backend registration failed with status ${registerRes.status}`);
         }
-        
+
         // 3. EXCHANGE ID TOKEN FOR BACKEND SESSION COOKIE
         await fetch("/api/sessionLogin", {
           method: "POST",
@@ -841,7 +932,7 @@ Here’s a **complete, production-ready registration (sign-up) page** that works
 {{ end }}
 ```
 
-##### Login page (layouts/account/login.html)
+### \- `login.html`
 
 Standard hybrid login authentication flow where the client uses the Firebase SDK for the primary sign-in and then contacts a custom backend API to establish a persistent session cookie.
 
@@ -962,55 +1053,33 @@ Standard hybrid login authentication flow where the client uses the Firebase SDK
 </script>
 {{ end }}
 ```
-##### Corresponding Go endpoint (backend/main.go)
-
-```
-// Add this handler
-func (s *Server) handleFirebaseRegister(w http.ResponseWriter, r *http.Request) {
-    // Verify Firebase ID token
-    token, err := verifyFirebaseToken(r) // you already have this helper somewhere
-    if err != nil {
-        http.Error(w, "unauthorized", http.StatusUnauthorized)
-        return
-    }
-
-    var payload struct{ Plan string `json:"plan"` }
-    if err := json.NewDecoder(r.Body).Decode(&payload); err != nil {
-        http.Error(w, "bad request", http.StatusBadRequest)
-        return
-    }
-
-    // Save plan to Firestore (or your own DB)
-    ctx := r.Context()
-    client := firestore.NewClient(ctx, "my-test-project")
-    _, err = client.Collection("users").Doc(token.UID).Set(ctx, map[string]any{
-        "email": token.Claims["email"],
-        "plan":  payload.Plan,
-        "createdAt": firestore.ServerTimestamp,
-    }, firestore.MergeAll)
-
-    if err != nil {
-        slog.Error("failed to save user plan", "error", err)
-        http.Error(w, "internal error", http.StatusInternalServerError)
-        return
-    }
-
-    w.WriteHeader(http.StatusCreated)
-    w.Write([]byte("ok"))
-}
-```
-
-And register it:
-
-```
-mux.HandleFunc("POST /api/register", s.handleFirebaseRegister)
-```
 
 ##### Summary – When you use this page
 
-| Environment        | URL to open                     | What works automatically                     |
-|--------------------|----------------------------------|-----------------------------------------------|
-| Local dev          | `http://localhost:5000/account/register.html` | Firebase Auth emulator + Go backend on :8081 |
-| Production         | `https://yoursite.web.app/account/register.html` | Real Firebase Auth + Cloud Run API           |
+Environment | URL to open | What works automatically
+--- | --- | ---
+Local dev | `http://localhost:5000/account/register.html` | Firebase Auth emulator + Go backend on :8081
+Production | `https://yoursite.web.app/account/register.html` | Real Firebase Auth + Cloud Run API
 
 You now have a **beautiful, fully functional registration page** that works today with the emulator and will work unchanged in production tomorrow.
+
+## Go API (`main.go`)
+
+> [!WARNING]
+> All the instructions below are an alternative to what it was done previously. It is not what the documentation is actually registering. It is shown as a reminder in case I change the architecture.
+
+> [!WARNING]
+> All the instructions below are aimed for development, not production. The goal is to avoid using real credentials in the local development environment. However, local development comes with a big limitation: **no support for rewrites**. For this reason we are using **Caddy** reverse proxy instead of Firebase Hosting in the local development environment.
+
+-   ✅ **Admin SDK Initialization**: Uses `os.Setenv("FIREBASE_AUTH_EMULATOR_HOST", authHost)` to correctly point the Admin SDK to the emulator.
+-   ✅ **Register**: `registerHandler` now calls `authClient.CreateUser` (Admin SDK) to create the user in the Firebase Auth Emulator.
+-   ✅ **Token Verification**: Added `authMiddleware` using `authClient.VerifyIDToken` to secure a new `protectedHandler`.
+-   ❌ **Login**: Not necessary to implement in Go API, as the client is responsible for this function.
+-   ❌ **Logout**: Not necessary to implement in Go API, as the client is responsible for this function.
+
+During development cycle, when the Admin SDK sees the `FIREBASE_AUTH_EMULATOR_HOST` environment variable, it is designed to automatically bypass the need for a service account and switch to the local, insecure connection. We set and environmental variable in the development version of podman compose file.
+
+Furthermore, the most stable, community-verified solution that bypasses both the credential check (needed for Auth) and the conflicting transport check (needed for Firestore) is to use a specific combination of options:
+
+-   `option.WithoutAuthentication()`: This is the official way to tell the SDK not to look for production credentials, allowing it to rely on the emulator host environment variables.
+-   `option.WithGRPCConnectionPool(1)`: This option is often required to stabilize the gRPC client’s initialization, which is what Firestore uses, thereby preventing the _WithHTTPClient is incompatible with WithGRPCConn_ error that results from the SDK trying to enforce strict client types.
