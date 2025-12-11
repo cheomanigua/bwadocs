@@ -13,9 +13,22 @@ weight: 30
 
 ## General
 
+```mermaid
+architecture-beta
+    group firebase(cloud)[Firebase]
+    service db(database)[Firestore] in firebase
+    service host(server)[Hosting] in firebase
+    service auth(server)[Authentication] in firebase
+    group cloudrun(cloud)[Cloud Run]
+    service goapi(server)[Go API] in cloudrun
+    group gcs(cloud)[Cloud Storage]
+    service buc(disk)[Bucket] in gcs
+```
+
 ### Services in Production
 
--   **Firebase Hosting**: Static site frontend.
+-   **Firebase Hosting**: Static site frontend (unrestricted pages).
+-   **Cloud Storage**: Static site frontend (restricted pages).
 -   **Cloud Run**: Go API backend.
 -   **Firebase Authentication**: User’s login/logout management, credentials storage.
 -   **Firestore**: User’s profile database.
@@ -23,13 +36,15 @@ weight: 30
 
 ### Development Infraestructure
 
-In order to simulate the services in production, the development infraestructure uses one local computer with three containers running locally in the computer:
+In order to simulate the services in production, the development infraestructure uses one local computer with four containers running locally in the computer:
 
 -   **Hugo** static website generator is installed baremetal in the computer.
 -   **Caddy** reverse proxy is running in one container (simulates Firebase Hosting)
     -   Port: 5000
 -   **Firebase Emulator** is running in another container (simulates Auth and Firestore).
     -   Ports: 4000, 8080 and 9099
+-   **GCS Fake Server** is running in another container (simulates GCS Bucket).
+    -   Port: 9000
 -   **Go API server** is running in another container (simulates Cloud Run).
     -   Port: 8081
 

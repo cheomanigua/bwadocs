@@ -178,11 +178,11 @@ flowchart LR
     end
     subgraph Firebase
         auth(Auth)
-        db(Firestore)
+        db[(Firestore)]
     end
     subgraph Go API
-        apires(/api/register)
-        apises(/api/session)
+        apires[[/api/register]]
+        apises[[/api/session]]
         authc(Firebase Admin SDK<br/>Auth Client)
         adminc(Firestore Admin Client)
     end
@@ -247,7 +247,7 @@ flowchart LR
         auth(Auth)
     end
     subgraph Go API
-        apises(/api/sessionLogin)
+        apises[[/api/sessionLogin]]
         admin(Firebase Admin SDK<br/>Auth Client)
     end
     form --"1"--> js
@@ -296,7 +296,7 @@ flowchart LR
         auth(Auth)
     end
     subgraph Go API
-        apisesout(/api/sessionLogout)
+        apisesout[[/api/sessionLogout]]
     end
 
     logoutbtn -- 1 --> js
