@@ -6,6 +6,23 @@ section = 'code'
 weight = 750
 +++
 
+TODO
+```mermaid
+kanban
+  Todo
+    [Require TOS on registration]
+    [Require Privacy Policy acceptance on registration]
+    [Stripe Integration]
+    [Email system]
+    [CLI for managing users]
+    [Polished UI & Design]
+  [In progress]
+    id6[Registration]
+  id11[Done]
+    id5[Login]
+    id2[Logout]
+    id3[Gated Content]
+```
 
 ## - `main.go`
 
