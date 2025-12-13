@@ -1,6 +1,6 @@
 ---
 title: "Deploy"
-weight: 70
+weight: 100
 # bookFlatSection: false
 # bookToc: true
 # bookHidden: false

@@ -195,7 +195,7 @@ flowchart LR
 
 Restricted content can be accessed only if this condition is true: User's `plan` matches the post's front-matter `categories`.
 
-As we saw in step 12 of the process above, the guard checks the requested path against its cached plan map. This map is the `permissions` map.
+As we saw in step 11 of the process above, the guard checks the requested path against its cached plan map. This map is the `permissions` map.
 
 The permissions map is generated once:
 
