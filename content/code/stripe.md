@@ -13,11 +13,11 @@ var (
 	// ... existing configuration ...
 
 	// Actual Key, Secret and IDs from Stripe Test Mode
-	StripeSecretKey = getEnv("TEST_SECRET_KEY", "sk_test_51MqjBWASlOB9XtLrMroE76gYUlZHh24ZBwB846GK6emMa9xYtmNaV9hC9GHVvOSEv1blS85wusuZN8EUQ7gk7MU400Vs1SWZ66")
-	StripeWebhookSecret = getEnv("TEST_WEBHOOK_SECRET", "whsec_411696825124da63c647bbb56b8584183a39c1a65345af1e9e71a0f3be41bb71")
-	StripePriceIDBasic = getEnv("TEST_PRICE_ID_BASIC", "price_1SeJiGASlOB9XtLr4Eh1sFKQ")
-	StripePriceIDPro = getEnv("TEST_PRICE_ID_PRO", "price_1SeJhZASlOB9XtLrwhqZJIOz")
-	StripePriceIDElite = getEnv("TEST_PRICE_ID_ELITE", "price_1SeJYfASlOB9XtLrAATjV41F")
+	StripeSecretKey = getEnv("TEST_SECRET_KEY", "sk_test_***")
+	StripeWebhookSecret = getEnv("TEST_WEBHOOK_SECRET", "whsec_***")
+	StripePriceIDBasic = getEnv("TEST_PRICE_ID_BASIC", "price_***")
+	StripePriceIDPro = getEnv("TEST_PRICE_ID_PRO", "price_***")
+	StripePriceIDElite = getEnv("TEST_PRICE_ID_ELITE", "price_***")
 
     // Frontend URL on Caddy container's port 5000
 	StripeSuccessURLBase = getEnv("TEST_SUCCESS_URL_BASE", "http://localhost:5000/success") 
