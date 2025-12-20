@@ -13,15 +13,19 @@ kanban
     [Email system]
     [Admin's management CLI]
     [Polished UI & Design]
-    [Forgot Password]
   [In progress]
     [Registration]
-    [User's management dashboard]
   [Done]
     [Login]
     [Logout]
     [Gated Content]
     [Stripe Integration]
+    [Change Subscription]
+    [Change Form of Payment]
+    [Delete Account - UMD]
+    [Contact Support - UMD]
+    [Change Password - UMD]
+    [Forgot Password]
 ```
 
 #### Work in Progress
@@ -29,9 +33,8 @@ kanban
 - Registration:
     - Require TOS
     - Require Privacy Policy acceptance
-- User's Management dashboard:
+- User's Management dashboard (UMD):
     - Contact
-    - Change Password
 
 #### Doubts
 

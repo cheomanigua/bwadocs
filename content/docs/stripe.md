@@ -27,6 +27,8 @@ weight: 60
 > [!NOTE]
 > You can create prices **Lookup Keys** in Stripe Dashboard -> Product catalog -> click on a product -> click on the price settings button -> Edit Price -> Lookup key
 
+> [!NOTE]
+> You can configure your webhooks in Stripe Dashboard -> Settings -> Payments -> Checkout and Payments Links tab -> Configure webhooks
 
 ## Summary
 
