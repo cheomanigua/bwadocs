@@ -3,6 +3,7 @@
 <head>
   {{ partial "docs/html-head" . }}
   {{ partial "docs/inject/head" . }}
+	<link rel="stylesheet" href="{{ "css/custom.css" | relURL }}">
 </head>
 <body dir="{{ default "ltr" .Site.Language.LanguageDirection }}" class="book-kind-{{ .Kind }} book-type-{{ .Type }}{{ with .Layout }} book-layout-{{ . }}{{ end }}">
   <input type="checkbox" class="hidden toggle" id="menu-control" />
@@ -34,6 +35,7 @@
   </main>
 
   {{ partial "docs/inject/body" . }}
+	<script src="{{ "js/mermaid-fullscreen.js" | relURL }}"></script>
 </body>
 </html>
 

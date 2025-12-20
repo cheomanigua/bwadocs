@@ -1,0 +1,39 @@
+.mermaid-wrapper {
+  position: relative;
+}
+
+/* Fullscreen button */
+.mermaid-fullscreen-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  z-index: 10;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: 14px;
+}
+
+.mermaid-fullscreen-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+}
+
+/* Fullscreen layout */
+.mermaid-wrapper:fullscreen {
+  background: var(--background);
+  padding: 1rem;
+}
+
+.mermaid-wrapper:fullscreen .mermaid {
+  width: 100vw;
+  height: 100vh;
+}
+
+.mermaid-wrapper:fullscreen svg {
+  width: 100% !important;
+  height: 100% !important;
+}
+
