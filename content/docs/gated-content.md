@@ -152,7 +152,6 @@ flowchart LR
     gcs_api -- 17 --> http_fetch
     http_fetch -- 18 --> handler
     handler -- 19 --> display
-
 ```
 
 #### 4. Process Steps
