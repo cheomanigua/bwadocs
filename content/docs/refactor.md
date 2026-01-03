@@ -10,15 +10,17 @@ TODO
 ```mermaid
 kanban
   Todo
-    [Email system]
+    [Email messaging]
     [Admin's management CLI]
     [Polished UI & Design]
+    [Remove Registration page]
   [In progress]
     [Registration]
   [Done]
     [Login]
     [Logout]
     [Gated Content]
+    [Vimeo/Gumlet Integration]
     [Stripe Integration]
     [Change Subscription]
     [Change Form of Payment]
@@ -40,6 +42,54 @@ kanban
 
 - Delete Stripe customer when users deletes account?
 - Better error handling on plan label update in users dashboard?
+
+#### Testing workflow
+
+**Steps to run the development environment without Stripe integration**
+
+1. Run `./up`
+2. If you want to add a new post:
+	1. `cd frontend`
+	2. `hugo new posts/week000x.md`
+	3. cd ..
+	4. ./addvideo week000x basic <videohslurl>
+3. If you want to change the video and plan of a post with real vimeo/gumlet urls:
+	1. ./addvideo week000x basic <videohslurl>
+4. Create a Firestore user:
+	1. `./testing/create_user.sh pepe pro
+5. To stop the containers run `./down`
+
+- Note 1: `up` script runs `compose.yaml`, that also runs `upload_posts.sh`
+- Note 2: `addvideo` script runs `upload_new_post.sh`
+
+
+
+**Steps to run the development environment with Stripe integration**
+
+1. Run `stripe listen --forward-to localhost:5000/api/stripe-webhook`
+2. Run `./up`
+3. If you want to add a new post:
+	1. `cd frontend`
+	2. `hugo new posts/week000x.md`
+	3. cd ..
+	4. ./addvideo week000x basic <videohslurl>
+4. If you want to change the video and plan of a post with real vimeo/gumlet urls:
+	1. ./addvideo week000x basic <videohslurl>
+5. Create a new user:
+	1. Navigate to localhost:5000
+	2. Register to any of the three plans available
+	3. Fill out the Stripe form. Fake Stripe card is 4242 4242 4242 4242
+	4. Check the backend logs for the reset link: `docker logs go-backend`
+	5. Copy the reset link from the logs and run the following command to reset your password:
+		```
+		curl "http://127.0.0.1:9099/emulator/action?mode=resetPassword&lang=en&oobCode=RANDOMGENERATEDSTRING&apiKey=fake-api-key&newPassword=MYPASSWORD"
+	6. Login in the application with the email and password you just reset: `localhost:5000/login`
+		```
+3. To stop the containers run `./down`
+
+- Note 1: `up` script runs `compose.yaml`, that also runs `upload_posts.sh`
+- Note 2: `addvideo` script runs `upload_new_post.sh`
+
 
 ## - `main.go`
 

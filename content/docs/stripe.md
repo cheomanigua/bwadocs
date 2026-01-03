@@ -155,7 +155,7 @@ go get github.com/stripe/stripe-go/v84
 
 ### 2\. Go Handler: `handleCreateCheckoutSession`
 
-This example assumes you are using Price Lookup Key (which you set up in your Stripe Dashboard) to your Go service.
+This example assumes you are using a [Price Lookup Key](#lookup-keys) (which you set up in your Stripe Dashboard) to your Go service.
 
 ```go
 package main
@@ -367,7 +367,7 @@ You now have the full boilerplate for the client-side initiation (`CreateCheckou
 
 ## Lookup Keys
 
-The **Lookup Key** is a specific Stripe feature designed exactly for what you are trying to achieve: **decoupling your code from Price IDs.**
+The **Lookup Key** is a specific Stripe feature designed exactly for **decoupling your code from Price IDs.** this means that you won't need to hard code the price id nor use env variables to hold it.
 
 
 ### How to use Lookup Keys to avoid Price IDs
