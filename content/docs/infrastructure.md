@@ -406,3 +406,271 @@ firebase deploy --only hosting,firestore:rules,firestore:indexes,functions
 
 Keep the dev versions of these files in a separate branch or `.env.dev` — never commit production secrets or `WithoutAuthentication()` to main.
 Do these steps and your switch from emulator → production will be painless every single time.
+
+* * *
+
+Perfect — thanks for laying out your full architecture. I can give a **production vs local development mapping**, and explain how to handle **secrets, environment variables, and backups** cleanly for your setup.
+
+Let’s break it down step by step.
+
+---
+
+## Secrets & API Keys
+
+How to use secrets and API keys in production vs local development.
+
+### 1. Production Stack
+
+| Component                   | Purpose                                  |
+| --------------------------- | ---------------------------------------- |
+| **Firebase Hosting**        | Serves public frontend pages             |
+| **Cloud Storage**           | Serves private/restricted frontend pages |
+| **Cloud Run (Go API)**      | Backend API                              |
+| **Firebase Authentication** | User login/logout, credential storage    |
+| **Firestore**               | User profile database                    |
+| **Stripe**                  | Payment & billing                        |
+
+**Key points for production**:
+
+* Secrets (DB credentials, Stripe API keys, service account JSON) **should never live in `.env`**
+* Cloud Run fetches secrets from **Secret Manager**
+* Frontend is static → no backend secrets are exposed
+
+---
+
+### 2. Local Development Stack
+
+| Component               | Purpose                                             |
+| ----------------------- | --------------------------------------------------- |
+| **Hugo static site**    | Generates frontend locally                          |
+| **Caddy reverse proxy** | Simulates Firebase Hosting (port 5000)              |
+| **Firebase Emulator**   | Simulates Auth & Firestore (ports 4000, 8080, 9099) |
+| **GCS Fake Server**     | Simulates GCS bucket (port 9000)                    |
+
+**Key points for local dev**:
+
+* `.env` file is fine here (safe locally)
+* Docker Compose can read `.env` to configure containers
+* Emulators avoid talking to production
+
+---
+
+### 3. Mapping Local → Production
+
+| Local                    | Production                | Notes                                           |
+| ------------------------ | ------------------------- | ----------------------------------------------- |
+| `.env` file              | Secret Manager            | Inject secrets at runtime                       |
+| Firebase Emulator        | Firebase Auth + Firestore | Same API endpoints, just real data              |
+| GCS Fake Server          | Cloud Storage             | Same bucket paths                               |
+| Caddy reverse proxy      | Firebase Hosting          | Only serves static files                        |
+| Docker container for API | Cloud Run                 | Same code, just different environment variables |
+
+---
+
+### 4. Handling `.env` and secrets
+
+#### **Local**
+
+* Docker Compose reads `.env`
+* Your Go API reads env vars:
+
+```go
+dbPass := os.Getenv("DB_PASSWORD")
+stripeKey := os.Getenv("STRIPE_API_KEY")
+```
+
+#### **Production**
+
+* Store secrets in **GCP Secret Manager**
+* Cloud Run injects secrets **as environment variables**
+* No `.env` file needed in production
+* The same Go code works, no changes
+
+Example:
+
+```bash
+gcloud run deploy go-api \
+  --image gcr.io/my-project/go-api:latest \
+  --set-secrets DB_PASSWORD=projects/my-project/secrets/db-password:latest \
+  --set-secrets STRIPE_API_KEY=projects/my-project/secrets/stripe-api-key:latest
+```
+
+* Inside the container: `os.Getenv("DB_PASSWORD")` works exactly like local dev
+
+---
+
+### 5. Handling Firestore + MongoDB backups
+
+For detailed information about backups, visit [backup](/docs/backup).
+
+* Local dev → Firebase Emulator → **no real data**
+* Production → Firestore → periodic **JSON snapshot to MongoDB** (cold backup)
+* Schedule snapshots via **Cloud Run Job + Cloud Scheduler**
+* Backup small dataset daily (you have ~400 documents)
+* No incremental backups needed for your scale
+
+Snapshot structure:
+
+```json
+{
+  "backup_id": "2026-01-09T00:00:00Z",
+  "collections": {
+    "users": [...],
+    "posts": [...]
+  }
+}
+```
+
+Store in:
+
+* MongoDB (primary backup)
+* Optional: cloud object storage (S3, GCS, Backblaze B2)
+
+---
+
+### 6. Stripe secrets
+
+* Local dev: `.env` with **test keys**
+* Production: Secret Manager with **live keys**
+* Go API reads `STRIPE_API_KEY` via `os.Getenv`
+
+---
+
+### 7. Summary: Best practices for your architecture
+
+1. **Local dev**
+
+   * `.env` file is fine
+   * Firebase Emulator + GCS fake server + Caddy simulate production
+   * Docker Compose reads `.env`
+
+2. **Production**
+
+   * **Do not use `.env`**
+   * Use **Secret Manager**
+   * Inject secrets at runtime into Cloud Run
+   * Static frontend on Firebase Hosting / private pages via Cloud Storage
+
+3. **Backups**
+
+   * Daily JSON snapshot of Firestore → MongoDB (cold backup)
+   * Optional archive to object storage
+   * No incremental backup needed (your dataset is tiny)
+
+4. **Code portability**
+
+   * Keep Go code **the same** locally and in production
+   * Only change **env variable injection mechanism**
+
+```mermaid
+%% Local vs Production Architecture Diagram
+flowchart TD
+
+    %% Local Environment
+    subgraph Local["Local Development Environment"]
+        HUGO["Hugo Static Site Generator (Bare Metal)"]
+        CADDY["Caddy Reverse Proxy (Container, Port 5000)"]
+        FIREBASE_EMU["Firebase Emulator (Container, Ports 4000,8080,9099)"]
+        GCS_FAKE["GCS Fake Server (Container, Port 9000)"]
+        ENV[".env file (Secrets)"]
+    end
+
+    %% Production Environment
+    subgraph Prod["Production Environment"]
+        HOST["Firebase Hosting (Public Frontend)"]
+        STORAGE["Cloud Storage (Restricted Frontend)"]
+        API[Cloud Run Go API Backend]
+        AUTH[Firebase Authentication]
+        FIRESTORE[Firestore Database]
+        STRIPE[Stripe Payments]
+        SECRET["Secret Manager (Secrets)"]
+        BACKUP["Cloud Run Jobs → MongoDB Backup → Optional Archive (GCS/S3)"]
+    end
+
+    %% Local Dev Connections
+    ENV --> CADDY
+    ENV --> FIREBASE_EMU
+    ENV --> GCS_FAKE
+    HUGO --> CADDY
+    CADDY --> FIREBASE_EMU
+    CADDY --> GCS_FAKE
+
+    %% Mapping arrows from Local → Production
+    HUGO -->|Static site| HOST
+    CADDY -->|Proxy/API requests| API
+    FIREBASE_EMU -->|Auth & Firestore| AUTH
+    FIREBASE_EMU -->|Firestore data| FIRESTORE
+    GCS_FAKE -->|Restricted files| STORAGE
+    ENV -->|Secrets injection| SECRET
+    API -->|Reads secrets| SECRET
+    API -->|Writes/reads data| FIRESTORE
+    API -->|Stripe requests| STRIPE
+    FIRESTORE -->|Backup snapshot| BACKUP
+    BACKUP -->|Optional archive| STORAGE
+```
+---
+
+```mermaid
+%% Secrets and Backup Flow - Compact Diagram
+flowchart TD
+
+    %% Production Components
+    subgraph Prod["Production Environment"]
+        API[Cloud Run Go API Backend]
+        FIRESTORE[Firestore Database]
+        SECRET["Secret Manager (Secrets)"]
+        STRIPE[Stripe Payments]
+        BACKUP["Cloud Run Jobs → MongoDB Backup → Optional Archive (GCS/S3)"]
+    end
+
+    %% Secrets flow
+    SECRET -->|"Injects secrets (DB, Stripe)"| API
+    API -->|Uses Stripe API| STRIPE
+
+    %% Data flow and backup
+    API -->|Reads/Writes| FIRESTORE
+    FIRESTORE -->|"Snapshot (JSON)"| BACKUP
+    BACKUP -->|Archive| GCS["Object Storage (GCS/S3)"]
+```
+
+```mermaid
+%% Compact Dev + Prod Architecture (Secrets & Backup)
+flowchart TD
+
+    %% Local Development
+    subgraph Local["Local Development Environment"]
+        LOCAL_API["Go API (Container)"]
+        LOCAL_FIREBASE["Firebase Emulator (Auth & Firestore)"]
+        LOCAL_GCS[GCS Fake Server]
+        ENV[".env file (Secrets)"]
+    end
+
+    %% Production
+    subgraph Prod["Production Environment"]
+        API[Cloud Run Go API Backend]
+        FIRESTORE[Firestore Database]
+        SECRET["Secret Manager (Secrets)"]
+        STRIPE[Stripe Payments]
+        BACKUP["Cloud Run Jobs → MongoDB Backup → Optional Archive (GCS/S3)"]
+    end
+
+    %% Local Secrets Flow
+    ENV --> LOCAL_API
+    LOCAL_API --> LOCAL_FIREBASE
+    LOCAL_API --> LOCAL_GCS
+
+    %% Production Secrets Flow
+    SECRET -->|"Injects secrets (DB, Stripe)"| API
+    API -->|Reads/Writes| FIRESTORE
+    API -->|Stripe API| STRIPE
+
+    %% Backup Flow
+    FIRESTORE -->|"Snapshot (JSON)"| BACKUP
+    BACKUP -->|Optional Archive| PROD_STORAGE["Object Storage (GCS/S3)"]
+
+    %% Mapping arrows Local → Prod
+    LOCAL_API -->|Same code| API
+    LOCAL_FIREBASE -->|Simulates| FIRESTORE
+    LOCAL_FIREBASE -->|Simulates| STRIPE
+    LOCAL_GCS -->|Simulates| PROD_STORAGE
+```

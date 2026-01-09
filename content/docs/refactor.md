@@ -10,12 +10,15 @@ TODO
 ```mermaid
 kanban
   Todo
-    [Email messaging]
     [Admin's management CLI]
     [Polished UI & Design]
-    [Remove Registration page]
+    [reCaptcha]
+    [Create a redundancy backup of Firebase Auth and Firestore]
+    [Add go to last/first in pagination]
   [In progress]
-    [Registration]
+    [Registration. See below]
+    [Delete Account - UMD. See below]
+    [Contact Support - UMD. See below]
   [Done]
     [Login]
     [Logout]
@@ -24,10 +27,9 @@ kanban
     [Stripe Integration]
     [Change Subscription]
     [Change Form of Payment]
-    [Delete Account - UMD]
-    [Contact Support - UMD]
     [Change Password - UMD]
     [Forgot Password]
+    [Email system]
 ```
 
 #### Work in Progress
@@ -35,8 +37,13 @@ kanban
 - Registration:
     - Require TOS
     - Require Privacy Policy acceptance
+    - Show message to user when registration is successfully to check email inbox for reset link
+    - Remove all forms of payments except credit card
+    - Remove old registration page
+    - Change pricing cards buttons and links when actor is logged in
 - User's Management dashboard (UMD):
-    - Contact
+    - Contact Form reCaptcha
+    - Delete Form, acceptance of consequences of deletion
 
 #### Doubts
 

@@ -95,6 +95,7 @@ flowchart TB
 -   Serves static frontend pages
 -   Ensures SEO-friendly, fast delivery
 -   Loads Firebase Web SDK for authentication
+-   Redirects API calls to Go API backend
 
 ### 3\. Firebase Authentication
 
@@ -140,38 +141,8 @@ Stores:
 
 ### 7\. Protected Content (Posts)
 
--   Stored in frontend public directory
--   Served conditionally based on membership tier
+-   Stored in Google Cloud Storage buckets
+-   Served conditionally based on membership tier attached to bucket metadata
 -   Access is validated by the Go API before returning content
--   Go API must have access to Hugo’s content/posts directory to check posts front-matter
 -   Front-matter specifies category in taxonomy (basic, pro, elite)
 
-```mermaid
-flowchart LR
-    subgraph FE["Frontend Browser"]
-        U["User Requests Post"]
-    end
-    subgraph API["Go API Backend"]
-        A1["Receive Request with Firebase Token"]
-        A2["Get User Plan from Firestore"]
-        A3["Read Hugo Content File"]
-        A4["Parse Front Matter Category"]
-        A5{"Does Plan Match Category?"}
-    end
-    subgraph FS["Firestore"]
-        D1["User Profile and Plan"]
-    end
-    subgraph HG["Hugo Content"]
-        C1["Markdown or HTML Post"]
-    end
-    U --> A1
-    A1 --> A2
-    A1 --> A3
-    A2 --> D1
-    A2 --> A5
-    A3 --> C1
-    A3 --> A4
-    A4 --> A5
-    A5 -->|Yes| R1["Return Full Post"]
-    A5 -->|No| R2["Return 403 Upgrade Message"]
-```
