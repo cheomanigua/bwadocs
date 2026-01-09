@@ -17,8 +17,6 @@ kanban
     [Add go to last/first in pagination]
   [In progress]
     [Registration. See below]
-    [Delete Account - UMD. See below]
-    [Contact Support - UMD. See below]
   [Done]
     [Login]
     [Logout]
@@ -28,22 +26,31 @@ kanban
     [Change Subscription]
     [Change Form of Payment]
     [Change Password - UMD]
+    [Delete Account - UMD]
+    [Contact Support - UMD]
     [Forgot Password]
     [Email system]
+    [Contact Form]
 ```
 
 #### Work in Progress
 
 - Registration:
+    - Remove all forms of payments except credit card
+    - Remove old registration page
+
+#### Done
+
+- Registration:
     - Require TOS
     - Require Privacy Policy acceptance
     - Show message to user when registration is successfully to check email inbox for reset link
-    - Remove all forms of payments except credit card
-    - Remove old registration page
+    - Prevent double registration for already registered users
     - Change pricing cards buttons and links when actor is logged in
 - User's Management dashboard (UMD):
-    - Contact Form reCaptcha
     - Delete Form, acceptance of consequences of deletion
+- Contact Form:
+    - Consent to use the information provided
 
 #### Doubts
 
